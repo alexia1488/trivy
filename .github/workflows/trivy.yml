@@ -1,11 +1,10 @@
 name: Сканирование Docker образа на уязвимости
 
-# Запуск только вручную
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Тег образа alpine/openssl'
+        description: 'Тег образа alpine/openssl (latest по умолчанию)'
         required: false
         default: 'latest'
         type: string
@@ -16,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # Установка сканера Trivy
       - name: Установка Trivy
         run: |
           sudo apt-get update
@@ -26,22 +24,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
-      # Сканирование образа
       - name: Сканирование образа alpine/openssl
         run: |
-          echo "Начинаем проверку образа alpine/openssl:${{ inputs.image_tag }} на уязвимости..."
+          echo "Начинаем проверку образа alpine/openssl:${{ inputs.image_tag }}"
           
-          # Сканируем образ и сохраняем результаты
-          trivy image --severity HIGH,CRITICAL alpine/openssl:${{ inputs.image_tag }} > scan_results.txt
+          # Обновляем базу данных уязвимостей
+          trivy image --download-db-only
           
-          # Проверяем код выхода команды
-          SCAN_EXIT_CODE=$?
+          # Сканируем образ с расширенными параметрами
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --vuln-type os,library \
+            --ignore-unfixed \
+            --format table \
+            --exit-code 1 \
+            alpine/openssl:${{ inputs.image_tag }} | tee scan_results.txt
+
+          # Сохраняем код выхода
+          SCAN_EXIT_CODE=${PIPESTATUS[0]}
           
           # Выводим результаты
           echo "Результаты сканирования:"
           cat scan_results.txt
           
-          # Если найдены уязвимости (код выхода 1) - завершаем с ошибкой
+          # Проверяем наличие уязвимостей
           if [ $SCAN_EXIT_CODE -eq 1 ]; then
             echo "ВНИМАНИЕ: Обнаружены серьезные уязвимости!"
             exit 1
@@ -49,7 +55,6 @@ jobs:
             echo "Серьезных уязвимостей не обнаружено"
           fi
 
-      # Сохраняем результаты для анализа
       - name: Сохранение результатов
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,14 +63,13 @@ jobs:
           path: scan_results.txt
           retention-days: 7
 
-      # Итоговый отчет
       - name: Итоговый отчет
         if: always()
         run: |
-          echo "=== Краткий отчет о проверке ==="
+          echo "=== Подробный отчет о проверке ==="
           if [ -f scan_results.txt ]; then
-            echo "Найденные уязвимости:"
-            grep -A 5 "Total:" scan_results.txt || echo "Уязвимостей не обнаружено"
+            echo "Статистика уязвимостей:"
+            cat scan_results.txt
           else
             echo "Ошибка: файл с результатами сканирования не найден"
           fi
