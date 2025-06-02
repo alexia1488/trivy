@@ -1,0 +1,71 @@
+name: Сканирование Docker образа на уязвимости
+
+# Запуск только вручную
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Тег образа alpine/openssl'
+        required: false
+        default: 'latest'
+        type: string
+
+jobs:
+  scan:
+    name: Проверка безопасности образа
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Установка сканера Trivy
+      - name: Установка Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      # Сканирование образа
+      - name: Сканирование образа alpine/openssl
+        run: |
+          echo "Начинаем проверку образа alpine/openssl:${{ inputs.image_tag }} на уязвимости..."
+          
+          # Сканируем образ и сохраняем результаты
+          trivy image --severity HIGH,CRITICAL alpine/openssl:${{ inputs.image_tag }} > scan_results.txt
+          
+          # Проверяем код выхода команды
+          SCAN_EXIT_CODE=$?
+          
+          # Выводим результаты
+          echo "Результаты сканирования:"
+          cat scan_results.txt
+          
+          # Если найдены уязвимости (код выхода 1) - завершаем с ошибкой
+          if [ $SCAN_EXIT_CODE -eq 1 ]; then
+            echo "ВНИМАНИЕ: Обнаружены серьезные уязвимости!"
+            exit 1
+          else
+            echo "Серьезных уязвимостей не обнаружено"
+          fi
+
+      # Сохраняем результаты для анализа
+      - name: Сохранение результатов
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: результаты-сканирования
+          path: scan_results.txt
+          retention-days: 7
+
+      # Итоговый отчет
+      - name: Итоговый отчет
+        if: always()
+        run: |
+          echo "=== Краткий отчет о проверке ==="
+          if [ -f scan_results.txt ]; then
+            echo "Найденные уязвимости:"
+            grep -A 5 "Total:" scan_results.txt || echo "Уязвимостей не обнаружено"
+          else
+            echo "Ошибка: файл с результатами сканирования не найден"
+          fi
