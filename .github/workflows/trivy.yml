@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Тег образа alpine/openssl (latest по умолчанию)'
+        description: 'Тег образа alpine/openssl'
         required: false
-        default: 'latest'
+        default: '3.3.3'
         type: string
 
 jobs:
@@ -26,14 +26,14 @@ jobs:
 
       - name: Сканирование образа
         run: |
-          echo "Сканирование образа alpine/openssl:${{ inputs.image_tag }}"
+          echo "Сканирование образа alpine/openssl:3.3.3"
           
           # Запускаем сканирование и сохраняем результаты
           trivy image \
             --severity HIGH,CRITICAL \
             --format table \
             --exit-code 1 \
-            alpine/openssl:${{ inputs.image_tag }} | tee scan_results.txt
+            alpine/openssl:3.3.3 | tee scan_results.txt
 
       - name: Сохранение результатов
         if: always()
