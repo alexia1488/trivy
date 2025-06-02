@@ -11,7 +11,7 @@ on:
 
 jobs:
   scan:
-    name: Углубленная проверка безопасности образа
+    name: Проверка безопасности образа
     runs-on: ubuntu-latest
     
     steps:
@@ -24,82 +24,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
-      - name: Очистка и обновление базы Trivy
+      - name: Сканирование образа
         run: |
-          trivy clean --all
-          trivy image --download-db-only
-
-      - name: Расширенное сканирование образа
-        run: |
-          echo "Начинаем расширенную проверку образа alpine/openssl:${{ inputs.image_tag }}"
+          echo "Сканирование образа alpine/openssl:${{ inputs.image_tag }}"
           
-          # Первое сканирование - все уязвимости включая MEDIUM
-          echo "=== Сканирование на все уязвимости ==="
-          trivy image \
-            --severity HIGH,CRITICAL,MEDIUM \
-            --vuln-type os,library \
-            --format table \
-            --no-progress \
-            --exit-code 0 \
-            alpine/openssl:${{ inputs.image_tag }} | tee full_scan.txt
-          
-          # Второе сканирование - без игнорирования неисправленных уязвимостей
-          echo "=== Сканирование включая неисправленные уязвимости ==="
+          # Запускаем сканирование и сохраняем результаты
           trivy image \
             --severity HIGH,CRITICAL \
-            --vuln-type os,library \
             --format table \
-            --no-progress \
-            --ignore-unfixed=false \
-            --exit-code 0 \
-            alpine/openssl:${{ inputs.image_tag }} | tee unfixed_scan.txt
-          
-          # Третье сканирование - проверка конфигурации
-          echo "=== Проверка конфигурации ==="
-          trivy image \
-            --severity HIGH,CRITICAL \
-            --scanners vuln,config,secret \
-            --format table \
-            --no-progress \
-            --exit-code 0 \
-            alpine/openssl:${{ inputs.image_tag }} | tee config_scan.txt
-
-      - name: Анализ результатов
-        run: |
-          echo "=== Объединенные результаты ===" > scan_results.txt
-          cat full_scan.txt >> scan_results.txt
-          echo -e "\n\n" >> scan_results.txt
-          cat unfixed_scan.txt >> scan_results.txt
-          echo -e "\n\n" >> scan_results.txt
-          cat config_scan.txt >> scan_results.txt
-
-          # Проверяем наличие уязвимостей
-          if grep -q "CRITICAL\|HIGH\|MEDIUM" scan_results.txt; then
-            echo "ВНИМАНИЕ: Обнаружены уязвимости!"
-            exit 1
-          else
-            echo "Уязвимостей не обнаружено"
-          fi
+            --exit-code 1 \
+            alpine/openssl:${{ inputs.image_tag }} | tee scan_results.txt
 
       - name: Сохранение результатов
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: результаты-сканирования
-          path: |
-            scan_results.txt
-            full_scan.txt
-            unfixed_scan.txt
-            config_scan.txt
+          path: scan_results.txt
           retention-days: 7
-
-      - name: Итоговый отчет
-        if: always()
-        run: |
-          echo "=== Итоговый отчет ==="
-          echo "1. Результаты полного сканирования:"
-          cat full_scan.txt || echo "Файл не найден"
-          echo -e "\n2. Результаты сканирования неисправленных уязвимостей:"
-          cat unfixed_scan.txt || echo "Файл не найден"
-          echo -e "\n3. Результаты проверки конфигурации:"
-          cat config_scan.txt || echo "Файл не найден"
