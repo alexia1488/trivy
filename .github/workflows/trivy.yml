@@ -1,10 +1,10 @@
-name: Расширенное сканирование Docker образа
+name: Сканирование Docker образа на уязвимости
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Тег образа alpine/openssl'
+        description: 'Тег образа alpine/openssl (latest по умолчанию)'
         required: false
         default: 'latest'
         type: string
@@ -24,12 +24,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
+      - name: Очистка и обновление базы Trivy
+        run: |
+          trivy clean --all
+          trivy image --download-db-only
+
       - name: Расширенное сканирование образа
         run: |
           echo "Начинаем расширенную проверку образа alpine/openssl:${{ inputs.image_tag }}"
-          
-          # Принудительное обновление базы данных
-          trivy image --download-db-only --reset
           
           # Первое сканирование - все уязвимости включая MEDIUM
           echo "=== Сканирование на все уязвимости ==="
@@ -38,6 +40,7 @@ jobs:
             --vuln-type os,library \
             --format table \
             --no-progress \
+            --exit-code 0 \
             alpine/openssl:${{ inputs.image_tag }} | tee full_scan.txt
           
           # Второе сканирование - без игнорирования неисправленных уязвимостей
@@ -48,6 +51,7 @@ jobs:
             --format table \
             --no-progress \
             --ignore-unfixed=false \
+            --exit-code 0 \
             alpine/openssl:${{ inputs.image_tag }} | tee unfixed_scan.txt
           
           # Третье сканирование - проверка конфигурации
@@ -57,17 +61,19 @@ jobs:
             --scanners vuln,config,secret \
             --format table \
             --no-progress \
+            --exit-code 0 \
             alpine/openssl:${{ inputs.image_tag }} | tee config_scan.txt
-          
-          # Объединяем результаты
+
+      - name: Анализ результатов
+        run: |
           echo "=== Объединенные результаты ===" > scan_results.txt
           cat full_scan.txt >> scan_results.txt
           echo -e "\n\n" >> scan_results.txt
           cat unfixed_scan.txt >> scan_results.txt
           echo -e "\n\n" >> scan_results.txt
           cat config_scan.txt >> scan_results.txt
-          
-          # Проверяем наличие уязвимостей во всех отчетах
+
+          # Проверяем наличие уязвимостей
           if grep -q "CRITICAL\|HIGH\|MEDIUM" scan_results.txt; then
             echo "ВНИМАНИЕ: Обнаружены уязвимости!"
             exit 1
@@ -87,13 +93,13 @@ jobs:
             config_scan.txt
           retention-days: 7
 
-      - name: Анализ результатов
+      - name: Итоговый отчет
         if: always()
         run: |
           echo "=== Итоговый отчет ==="
           echo "1. Результаты полного сканирования:"
-          cat full_scan.txt
+          cat full_scan.txt || echo "Файл не найден"
           echo -e "\n2. Результаты сканирования неисправленных уязвимостей:"
-          cat unfixed_scan.txt
+          cat unfixed_scan.txt || echo "Файл не найден"
           echo -e "\n3. Результаты проверки конфигурации:"
-          cat config_scan.txt
+          cat config_scan.txt || echo "Файл не найден"
